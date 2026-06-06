@@ -33,6 +33,8 @@ services:
       LOCAL_BOT_API_URL: http://telegram-bot-api:8081/bot
       OFFICIAL_MAX_FILE_SIZE_MB: "50"
       LOCAL_MAX_FILE_SIZE_MB: "500"
+      FILE_RETENTION_DAYS: "30"
+      STORAGE_LIMIT_GB: "20"
     volumes:
       - ./downloads:/app/downloads
 
