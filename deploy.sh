@@ -15,7 +15,8 @@ fi
 
 # shellcheck disable=SC1090
 set -a
-source "$ENV_FILE"
+# 相容 Windows 編輯器產生的 CRLF .env
+source <(sed 's/\r$//' "$ENV_FILE")
 set +a
 
 REMOTE_PORT="${REMOTE_PORT:-22}"
@@ -43,12 +44,20 @@ SSH_OPTS=(-p "$REMOTE_PORT" -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new)
 echo "📦 正在同步檔案到遠端伺服器..."
 rsync -avz --exclude '.git' \
            --exclude '__pycache__' \
+           --exclude '.codegraph/' \
            --exclude 'downloads/' \
            --exclude 'bot-api-data/' \
            --exclude 'ffmpeg-8.0.1*' \
            --exclude '.env' \
            -e "ssh ${SSH_OPTS[*]}" \
            ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
+
+echo "🔐 正在同步 .env 到遠端伺服器..."
+REMOTE_ENV_FILE="$(mktemp)"
+# 移除僅供本地 Windows 使用的 FFMPEG_PATH，Docker 映像已內建 ffmpeg
+sed 's/\r$//' "$ENV_FILE" | grep -v '^FFMPEG_PATH=' > "$REMOTE_ENV_FILE"
+rsync -avz -e "ssh ${SSH_OPTS[*]}" "$REMOTE_ENV_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/.env"
+rm -f "$REMOTE_ENV_FILE"
 
 echo "🔧 正在遠端伺服器上重新建置並啟動容器..."
 ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" << ENDSSH
