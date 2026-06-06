@@ -1,10 +1,16 @@
 import os
+import re
+import time
 import asyncio
 import hashlib
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from services.downloader import get_video_info, get_available_formats, download_media
+from services.storage import check_storage_available, format_storage_status
 import config
+
+logger = logging.getLogger(__name__)
 
 
 def _store_url(context: ContextTypes.DEFAULT_TYPE, url: str) -> str:
@@ -14,6 +20,32 @@ def _store_url(context: ContextTypes.DEFAULT_TYPE, url: str) -> str:
     url_id = hashlib.sha256(url.encode()).hexdigest()[:8]
     context.bot_data["url_cache"][url_id] = url
     return url_id
+
+
+def _youtube_video_id(url: str) -> str:
+    match = re.search(r"(?:v=|youtu\.be/)([\w-]{11})", url)
+    return match.group(1) if match else "unknown"
+
+
+def _log_transfer_event(event: str, **fields) -> None:
+    """輸出結構化傳輸紀錄，便於 docker logs 搜尋與統計。"""
+    payload = " ".join(f"{key}={value}" for key, value in fields.items())
+    logger.info("%s %s", event, payload)
+
+
+def _cache_format_size(
+    context: ContextTypes.DEFAULT_TYPE, url_id: str, format_type: str, format_id: str, size: int
+) -> None:
+    cache = context.bot_data.setdefault("format_size_cache", {})
+    cache[f"{url_id}|{format_type}|{format_id}"] = size
+
+
+def _get_cached_format_size(
+    context: ContextTypes.DEFAULT_TYPE, url_id: str, format_type: str, format_id: str
+) -> int:
+    return context.bot_data.get("format_size_cache", {}).get(
+        f"{url_id}|{format_type}|{format_id}", 0
+    )
 
 
 def _resolve_url(context: ContextTypes.DEFAULT_TYPE, url_id: str) -> str | None:
@@ -160,8 +192,16 @@ async def handle_format_selection(update: Update, context: ContextTypes.DEFAULT_
             )
             return
 
+        storage_ok, storage_msg = check_storage_available()
+        if not storage_ok:
+            await _edit_menu_message(query, storage_msg)
+            return
+
         keyboard = []
         for fmt in formats:
+            _cache_format_size(
+                context, url_id, format_type, fmt["format_id"], int(fmt["filesize_approx"] or 0)
+            )
             callback_data = f"download_{format_type}|{fmt['format_id']}|{url_id}"
             keyboard.append(
                 [InlineKeyboardButton(fmt["description"], callback_data=callback_data)]
@@ -222,17 +262,42 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
         return
 
     format_label = "音檔" if format_type == "mp3" else "影片"
+    estimated_size = _get_cached_format_size(context, url_id, format_type, format_id)
+    if estimated_size <= 0:
+        estimated_size = config.LOCAL_MAX_FILE_SIZE
+
+    storage_ok, storage_msg = check_storage_available(estimated_size)
+    if not storage_ok:
+        await _edit_menu_message(query, storage_msg)
+        return
+
     await _edit_menu_message(
         query, f"⏳ 正在下載 {format_label}，請稍候...\n這可能需要一些時間。"
     )
 
+    transfer_success = False
     try:
         loop = asyncio.get_event_loop()
+        total_started = time.monotonic()
+        download_started = time.monotonic()
         filepath = await loop.run_in_executor(
             None, download_media, url, format_id, format_type
         )
+        download_sec = time.monotonic() - download_started
 
         file_size = os.path.getsize(filepath)
+        file_size_mb = file_size / 1024 / 1024
+        download_speed_mbps = file_size_mb / download_sec if download_sec > 0 else 0.0
+        _log_transfer_event(
+            "download_complete",
+            format_type=format_type,
+            format_id=format_id,
+            video_id=_youtube_video_id(url),
+            file_size_mb=f"{file_size_mb:.2f}",
+            file_size_bytes=file_size,
+            download_sec=f"{download_sec:.2f}",
+            download_speed_mbps=f"{download_speed_mbps:.2f}",
+        )
         use_local = file_size > config.OFFICIAL_MAX_FILE_SIZE
         if use_local and not context.bot_data.get("local_bot"):
             await _edit_menu_message(
@@ -295,11 +360,13 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
                 "write_timeout": 300,
                 "connect_timeout": 60,
             }
+        upload_started = time.monotonic()
         try:
             await _send_media(
                 upload_bot, chat_id, format_type, media, title, duration, thumbnail_file, timeouts
             )
         finally:
+            upload_sec = time.monotonic() - upload_started
             if file_handle:
                 file_handle.close()
             if thumbnail_file:
@@ -310,6 +377,26 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
                 except OSError:
                     pass
 
+        total_sec = time.monotonic() - total_started
+        upload_mode = "local" if use_local else "official"
+        _log_transfer_event(
+            "transfer_complete",
+            format_type=format_type,
+            format_id=format_id,
+            video_id=_youtube_video_id(url),
+            title=title.replace(" ", "_")[:80],
+            video_duration_sec=duration,
+            file_size_mb=f"{file_size_mb:.2f}",
+            download_sec=f"{download_sec:.2f}",
+            download_speed_mbps=f"{download_speed_mbps:.2f}",
+            upload_sec=f"{upload_sec:.2f}",
+            total_sec=f"{total_sec:.2f}",
+            upload_mode=upload_mode,
+            chat_id=chat_id,
+            storage_status=format_storage_status().replace(" ", "_"),
+        )
+
+        transfer_success = True
         await query.delete_message()
         await context.bot.send_message(chat_id=chat_id, text="✅ 下載完成！")
 
@@ -329,7 +416,12 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
                 chat_id=query.message.chat_id, text=f"❌ 下載或傳送失敗: {str(e)}"
             )
     finally:
-        if "filepath" in locals() and os.path.exists(filepath):
+        if (
+            not transfer_success
+            and "filepath" in locals()
+            and filepath
+            and os.path.exists(filepath)
+        ):
             try:
                 os.remove(filepath)
             except OSError:

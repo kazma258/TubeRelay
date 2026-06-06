@@ -15,6 +15,9 @@ OFFICIAL_MAX_FILE_SIZE = int(os.getenv("OFFICIAL_MAX_FILE_SIZE_MB", "50")) * 102
 LOCAL_MAX_FILE_SIZE = int(os.getenv("LOCAL_MAX_FILE_SIZE_MB", "500")) * 1024 * 1024
 LOCAL_BOT_API_URL = os.getenv("LOCAL_BOT_API_URL", "")
 LOCAL_API_FILE_PREFIX = os.getenv("LOCAL_API_FILE_PREFIX", "/downloads")
+FILE_RETENTION_DAYS = int(os.getenv("FILE_RETENTION_DAYS", "30"))
+FILE_RETENTION_SECONDS = FILE_RETENTION_DAYS * 24 * 60 * 60
+STORAGE_LIMIT_BYTES = int(os.getenv("STORAGE_LIMIT_GB", "20")) * 1024 * 1024 * 1024
 
 
 def to_local_api_file_uri(filepath: str) -> str:
