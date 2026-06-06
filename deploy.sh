@@ -1,19 +1,42 @@
 #!/bin/bash
 
 # 遠端伺服器部署腳本
-# 使用方法: ./deploy.sh
+# 使用方法: cp .env.example .env 填入參數後執行 ./deploy.sh
 
 set -e
 
-echo "🚀 開始部署 Telegram Bot 到遠端伺服器..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
 
-# 設定變數 (請根據您的伺服器修改)
-REMOTE_USER="ubuntu"
-REMOTE_HOST="your-server-ip"
-REMOTE_PORT="22"
-REMOTE_DIR="/home/$REMOTE_USER/TubeRelay"
-# WSL 請用 Linux 路徑（/mnt/c/ 上的金鑰無法設定 chmod 600，SSH 會拒絕）
-SSH_KEY="$HOME/.ssh/id_rsa"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "❌ 找不到 .env，請先執行: cp .env.example .env"
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+set -a
+source "$ENV_FILE"
+set +a
+
+REMOTE_PORT="${REMOTE_PORT:-22}"
+REMOTE_DIR="${REMOTE_DIR:-/home/${REMOTE_USER}/TubeRelay}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
+SSH_KEY="${SSH_KEY/#\~/$HOME}"
+
+for var in REMOTE_USER REMOTE_HOST; do
+    if [[ -z "${!var}" ]]; then
+        echo "❌ .env 缺少必要變數: $var"
+        exit 1
+    fi
+done
+
+if [[ ! -f "$SSH_KEY" ]]; then
+    echo "❌ SSH 金鑰不存在: $SSH_KEY"
+    exit 1
+fi
+
+echo "🚀 開始部署 Telegram Bot 到遠端伺服器..."
+echo "   目標: ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PORT} → ${REMOTE_DIR}"
 
 SSH_OPTS=(-p "$REMOTE_PORT" -i "$SSH_KEY" -o StrictHostKeyChecking=accept-new)
 
@@ -28,8 +51,8 @@ rsync -avz --exclude '.git' \
            ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_DIR/"
 
 echo "🔧 正在遠端伺服器上重新建置並啟動容器..."
-ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" << 'ENDSSH'
-cd ~/TubeRelay
+ssh "${SSH_OPTS[@]}" "$REMOTE_USER@$REMOTE_HOST" << ENDSSH
+cd "$REMOTE_DIR"
 
 mkdir -p downloads
 docker-compose down
