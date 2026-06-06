@@ -233,15 +233,6 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
         )
 
         file_size = os.path.getsize(filepath)
-        local_mb = config.LOCAL_MAX_FILE_SIZE // 1024 // 1024
-        if file_size > config.LOCAL_MAX_FILE_SIZE:
-            await _edit_menu_message(
-                query,
-                f"❌ 檔案過大無法傳送 ({file_size / 1024 / 1024:.2f} MB > {local_mb} MB)。",
-            )
-            os.remove(filepath)
-            return
-
         use_local = file_size > config.OFFICIAL_MAX_FILE_SIZE
         if use_local and not context.bot_data.get("local_bot"):
             await _edit_menu_message(
@@ -259,10 +250,14 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
         )
         file_handle = media if not use_local else None
 
-        await _edit_menu_message(
-            query,
-            "📤 正在上傳檔案..." + ("（大檔模式）" if use_local else ""),
-        )
+        upload_hint = ""
+        if use_local:
+            upload_hint = (
+                "（超大檔模式）"
+                if file_size > config.LOCAL_MAX_FILE_SIZE
+                else "（大檔模式）"
+            )
+        await _edit_menu_message(query, f"📤 正在上傳檔案...{upload_hint}")
 
         video_info = await loop.run_in_executor(None, get_video_info, url)
 
@@ -285,11 +280,21 @@ async def handle_quality_download(update: Update, context: ContextTypes.DEFAULT_
                 thumbnail_file = None
 
         chat_id = query.message.chat_id
-        timeouts = (
-            {"read_timeout": 900, "write_timeout": 900, "connect_timeout": 60}
-            if use_local
-            else {"read_timeout": 300, "write_timeout": 300, "connect_timeout": 60}
-        )
+        if use_local:
+            timeout_secs = (
+                1800 if file_size > config.LOCAL_MAX_FILE_SIZE else 900
+            )
+            timeouts = {
+                "read_timeout": timeout_secs,
+                "write_timeout": timeout_secs,
+                "connect_timeout": 60,
+            }
+        else:
+            timeouts = {
+                "read_timeout": 300,
+                "write_timeout": 300,
+                "connect_timeout": 60,
+            }
         try:
             await _send_media(
                 upload_bot, chat_id, format_type, media, title, duration, thumbnail_file, timeouts

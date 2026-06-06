@@ -237,7 +237,6 @@ def download_media(url, format_id, format_type):
         'outtmpl': out_tmpl,
         'quiet': True,
         'no_warnings': True,
-        'max_filesize': LOCAL_MAX_FILE_SIZE,
         'socket_timeout': 60,
         'retries': 10,  # 重試次數
         'fragment_retries': 10,  # 分段重試次數
@@ -303,10 +302,6 @@ def download_media(url, format_id, format_type):
             return filepath
 
         except yt_dlp.utils.DownloadError as de:
-            # 檢查是否因為檔案過大而失敗
-            if "File is larger than max-filesize" in str(de):
-                local_mb = LOCAL_MAX_FILE_SIZE // 1024 // 1024
-                raise ValueError(f"檔案超過 {local_mb}MB 限制,取消下載。")
             print(f"yt-dlp 下載錯誤: {de}")
             raise de
         except Exception as e:
