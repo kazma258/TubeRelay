@@ -1,0 +1,40 @@
+services:
+  telegram-bot-api:
+    image: ragnarok22/telegram-bot-api-docker
+    container_name: telegram-bot-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_LOCAL: "true"
+    expose:
+      - "8081"
+      - "8082"
+    volumes:
+      - bot-api-data:/data
+      - ./downloads:/downloads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --server-response --spider http://127.0.0.1:8081/ 2>&1 | grep -q 'HTTP/1.1'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  telegram-bot:
+    build: .
+    container_name: tuberelay-bot
+    restart: unless-stopped
+    depends_on:
+      telegram-bot-api:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      LOCAL_BOT_API_URL: http://telegram-bot-api:8081/bot
+      OFFICIAL_MAX_FILE_SIZE_MB: "50"
+      LOCAL_MAX_FILE_SIZE_MB: "500"
+    volumes:
+      - ./downloads:/app/downloads
+
+volumes:
+  bot-api-data:
