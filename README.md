@@ -18,7 +18,7 @@
 
 | 項目 | 說明 |
 |------|------|
-| 檔案大小 | ≤50MB 走官方 API；50–500MB 需 Local Bot API；>500MB 拒絕 |
+| 檔案大小 | ≤50MB 官方 API；>50MB Local Bot API；品質列表建議 ≤500MB，下載完成後仍會上傳 |
 | 平台 | 主要針對 YouTube，其他 yt-dlp 支援的網站理論上可用 |
 | 出站連線 | Bot 僅需對外連線，**無需**開放入站端口 |
 
@@ -153,7 +153,7 @@ docker compose down
 |----------|-----|----------|
 | ≤ 50 MB | 官方 `api.telegram.org` | `open(filepath, 'rb')` |
 | 50–500 MB | Local Bot API | `file:///downloads/{檔名}` |
-| > 500 MB | 不上傳 | 錯誤提示 |
+| > 500 MB | Local Bot API | 品質列表預設不顯示；若下載完成則照常上傳 |
 
 ### 部署後測試
 
@@ -161,7 +161,7 @@ docker compose down
 |------|------|
 | ~30MB 音檔 | 官方 API 上傳成功 |
 | ~80MB 影片 | Local API `file:///` 上傳成功 |
-| >500MB | 拒絕，不嘗試上傳 |
+| >500MB 且下載完成 | Local API 上傳（品質選單預設不列出） |
 | `telegram-bot-api` 未啟動 | >50MB 檔案提示「大檔服務未就緒」 |
 
 ## 遠端伺服器部署
