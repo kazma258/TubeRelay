@@ -191,13 +191,14 @@ nano .env   # 填入 BOT_TOKEN、TELEGRAM_API_ID、TELEGRAM_API_HASH
 
 ### 方法 1：使用 deploy.sh（推薦）
 
-編輯 `deploy.sh`：
+在本地 `.env` 填入部署參數（範本見 `.env.example` 的 `REMOTE_*`、`SSH_KEY` 區塊）：
 
-```bash
-REMOTE_USER="ubuntu"
-REMOTE_HOST="your-server-ip"
-REMOTE_PORT="22"
-SSH_KEY="$HOME/.ssh/id_rsa"
+```ini
+REMOTE_USER=ubuntu
+REMOTE_HOST=your-server-ip
+REMOTE_PORT=22
+REMOTE_DIR=/home/ubuntu/TubeRelay
+SSH_KEY=$HOME/.ssh/id_rsa
 ```
 
 執行部署：
